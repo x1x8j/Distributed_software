@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="Encoding">
+    <file url="file://$PROJECT_DIR$/flash-mall-common/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/flash-mall-common/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/flash-mall-inventory-service/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/flash-mall-inventory-service/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/flash-mall-order-service/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/flash-mall-order-service/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/flash-mall-product-service/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/flash-mall-product-service/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/flash-mall-seckill-service/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/flash-mall-seckill-service/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/flash-mall-user-service/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/flash-mall-user-service/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/src/main/resources" charset="UTF-8" />
+  </component>
+</project>
