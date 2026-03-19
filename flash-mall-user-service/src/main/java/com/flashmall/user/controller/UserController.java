@@ -3,7 +3,7 @@ package com.flashmall.user.controller;
 import com.flashmall.user.entity.User;
 import com.flashmall.user.service.UserService;
 import lombok.Data;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
@@ -13,10 +13,10 @@ import jakarta.validation.Valid;
 @RestController
 @RequestMapping("/api/users")
 @Validated
+@RequiredArgsConstructor
 public class UserController {
 
-    @Autowired
-    private UserService userService;
+    private final UserService userService;
 
     @PostMapping("/register")
     public ResponseEntity<User> register(@Valid @RequestBody User user) {
