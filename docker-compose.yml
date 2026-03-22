@@ -17,7 +17,8 @@ services:
 
   backend1:
     build:
-      context: ./flash-mall-user-service
+      context: .
+      dockerfile: flash-mall-user-service/Dockerfile
     environment:
       - SERVER_PORT=8081
       - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/flashmall?useSSL=false&useUnicode=true&characterEncoding=utf8mb4&serverTimezone=Asia/Shanghai
@@ -31,7 +32,8 @@ services:
 
   backend2:
     build:
-      context: ./flash-mall-user-service
+      context: .
+      dockerfile: flash-mall-user-service/Dockerfile
     environment:
       - SERVER_PORT=8082
       - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/flashmall?useSSL=false&useUnicode=true&characterEncoding=utf8mb4&serverTimezone=Asia/Shanghai
