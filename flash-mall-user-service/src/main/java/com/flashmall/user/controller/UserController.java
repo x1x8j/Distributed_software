@@ -36,4 +36,11 @@ public class UserController {
         private String username;
         private String password;
     }
+
+    @GetMapping("/health")
+    public ResponseEntity<String> health() {
+        String instance = System.getenv("SERVER_PORT");
+        if (instance == null) instance = "unknown";
+        return ResponseEntity.ok("user-service OK - port:" + instance);
+    }
 }
