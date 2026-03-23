@@ -6,7 +6,9 @@ services:
       MYSQL_ROOT_PASSWORD: rootpwd
       MYSQL_DATABASE: flashmall
     volumes:
-      - ./flash-mall-user-service/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+      # 按文件名字母顺序执行，01 users 先建，02 products 后建
+      - ./flash-mall-user-service/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/01_users.sql:ro
+      - ./flash-mall-product-service/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/02_products.sql:ro
     ports:
       - "3306:3306"
 
@@ -45,6 +47,38 @@ services:
     ports:
       - "8082:8082"
 
+  product1:
+    build:
+      context: .
+      dockerfile: flash-mall-product-service/Dockerfile
+    environment:
+      - SERVER_PORT=8083
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/flashmall?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=rootpwd
+      - SPRING_DATA_REDIS_HOST=redis
+    depends_on:
+      - mysql
+      - redis
+    ports:
+      - "8083:8083"
+
+  product2:
+    build:
+      context: .
+      dockerfile: flash-mall-product-service/Dockerfile
+    environment:
+      - SERVER_PORT=8084
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/flashmall?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=rootpwd
+      - SPRING_DATA_REDIS_HOST=redis
+    depends_on:
+      - mysql
+      - redis
+    ports:
+      - "8084:8084"
+
   nginx:
     build:
       context: ./nginx
@@ -55,3 +89,5 @@ services:
     depends_on:
       - backend1
       - backend2
+      - product1
+      - product2

@@ -40,3 +40,7 @@ build/
 ### JMeter ###
 load/results.jtl
 load/jmeter_run.log
+
+
+.claude/settings.local.json
+.claude/memory/
