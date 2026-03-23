@@ -36,3 +36,7 @@ build/
 
 ### Mac OS ###
 .DS_Store
+
+### JMeter ###
+load/results.jtl
+load/jmeter_run.log

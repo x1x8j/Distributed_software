@@ -50,6 +50,8 @@ services:
       context: ./nginx
     ports:
       - "80:80"
+    volumes:
+      - ./nginx/upstreams_rr.conf:/etc/nginx/upstreams.conf:ro
     depends_on:
       - backend1
       - backend2
