@@ -1,0 +1,78 @@
+# ShardingSphere-JDBC 分库分表配置
+#
+# 分片策略：
+#   分库（2库）：id % 2  → ds0(flashmall_0) / ds1(flashmall_1)
+#   分表（4表）：id % 4  → seckill_orders_0 ~ seckill_orders_3
+#
+# 基因算法保证：id % 2 = userId % 2
+#   → 偶数用户落 ds0，奇数用户落 ds1
+#   → 所有 WHERE id=? 的查询都能精准路由，无需广播
+#
+# 非分片表（seckill_stocks）走 defaultDataSourceName=ds_main
+
+mode:
+  type: Standalone
+
+dataSources:
+  # 主数据源：存放 seckill_stocks 等非分片表
+  ds_main:
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    driverClassName: com.mysql.cj.jdbc.Driver
+    jdbcUrl: jdbc:mysql://mysql-master:3306/flashmall?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+    username: root
+    password: rootpwd
+    maximumPoolSize: 10
+    connectionTimeout: 30000
+
+  # 分库 0：偶数用户（userId % 2 = 0）
+  ds0:
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    driverClassName: com.mysql.cj.jdbc.Driver
+    jdbcUrl: jdbc:mysql://mysql-master:3306/flashmall_0?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+    username: root
+    password: rootpwd
+    maximumPoolSize: 10
+    connectionTimeout: 30000
+
+  # 分库 1：奇数用户（userId % 2 = 1）
+  ds1:
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    driverClassName: com.mysql.cj.jdbc.Driver
+    jdbcUrl: jdbc:mysql://mysql-master:3306/flashmall_1?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+    username: root
+    password: rootpwd
+    maximumPoolSize: 10
+    connectionTimeout: 30000
+
+rules:
+  - !SHARDING
+    tables:
+      seckill_orders:
+        # 8 张物理表：ds0/ds1 各 4 张
+        actualDataNodes: ds${0..1}.seckill_orders_${0..3}
+        # 分库：id % 2  （基因算法保证 id % 2 = userId % 2）
+        databaseStrategy:
+          standard:
+            shardingColumn: id
+            shardingAlgorithmName: db-mod-2
+        # 分表：id % 4
+        tableStrategy:
+          standard:
+            shardingColumn: id
+            shardingAlgorithmName: table-mod-4
+
+    # 非分片表（seckill_stocks 等）路由到主数据源
+    defaultDataSourceName: ds_main
+
+    shardingAlgorithms:
+      db-mod-2:
+        type: MOD
+        props:
+          sharding-count: '2'
+      table-mod-4:
+        type: MOD
+        props:
+          sharding-count: '4'
+
+props:
+  sql-show: true   # 开启 SQL 日志，可观察路由结果

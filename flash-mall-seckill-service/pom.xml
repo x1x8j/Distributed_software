@@ -30,6 +30,20 @@
             <groupId>com.mysql</groupId>
             <artifactId>mysql-connector-j</artifactId>
         </dependency>
+        <!-- ShardingSphere-JDBC 5.x：分库分表透明代理 -->
+        <dependency>
+            <groupId>org.apache.shardingsphere</groupId>
+            <artifactId>shardingsphere-jdbc</artifactId>
+            <version>5.4.1</version>
+            <exclusions>
+                <!-- 排除 ShardingSphere 自带的旧版 Snakeyaml，使用 Spring Boot 管理的版本 -->
+                <exclusion>
+                    <groupId>org.yaml</groupId>
+                    <artifactId>snakeyaml</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
         <!-- Redisson: Redis 客户端 + Lua 原子脚本 + 分布式锁 -->
         <dependency>
             <groupId>org.redisson</groupId>

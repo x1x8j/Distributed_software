@@ -102,8 +102,8 @@ public class SeckillServiceImpl implements SeckillService {
             throw new SeckillException("很遗憾，商品已售罄");
         }
 
-        // ③ 生成雪花订单 ID
-        long orderId = snowflake.nextId();
+        // ③ 基因雪花 ID：低位嵌入 userId%2，保证 id%2=userId%2，ShardingSphere 按 id 精准路由
+        long orderId = snowflake.nextId(userId);
 
         // ④ 异步发 Kafka 消息（削峰填谷）
         OrderMessage msg = new OrderMessage(orderId, userId, productId, 1, System.currentTimeMillis());

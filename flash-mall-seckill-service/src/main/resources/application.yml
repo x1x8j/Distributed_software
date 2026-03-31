@@ -1,9 +1,12 @@
 spring:
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://mysql-master:3306/flashmall?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai}
-    username: ${SPRING_DATASOURCE_USERNAME:root}
-    password: ${SPRING_DATASOURCE_PASSWORD:rootpwd}
-    driver-class-name: com.mysql.cj.jdbc.Driver
+    # ShardingSphere-JDBC 驱动，读取 classpath:shardingsphere.yaml 做分库分表路由
+    driver-class-name: org.apache.shardingsphere.driver.ShardingSphereDriver
+    url: jdbc:shardingsphere:classpath:shardingsphere.yaml
+    # username/password 由 shardingsphere.yaml 内每个数据源单独配置，此处不填
+  autoconfigure:
+    # 排除 Spring Boot 默认 DataSource 自动配置，避免与 ShardingSphere 冲突
+    exclude: org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
   data:
     redis:
       host: ${SPRING_DATA_REDIS_HOST:redis}
@@ -13,7 +16,7 @@ spring:
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
-      acks: all                  # 所有副本确认，防止消息丢失
+      acks: all
       retries: 3
     consumer:
       group-id: seckill-order-processor
@@ -30,4 +33,4 @@ server:
   port: ${SERVER_PORT:8085}
 
 seckill:
-  worker-id: ${WORKER_ID:0}    # 雪花算法机器ID，多实例须不同
+  worker-id: ${WORKER_ID:0}

@@ -13,6 +13,7 @@ services:
       - ./flash-mall-user-service/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/01_users.sql:ro
       - ./flash-mall-product-service/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/02_products.sql:ro
       - ./flash-mall-seckill-service/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/03_seckill.sql:ro
+      - ./flash-mall-seckill-service/src/main/resources/schema_shard.sql:/docker-entrypoint-initdb.d/04_seckill_shard.sql:ro
     ports:
       - "3306:3306"
     healthcheck:
