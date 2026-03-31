@@ -1,27 +1,148 @@
-### 1. **编程语言**
+# Flash Mall 技术栈文档
 
-* **Java 17**：选用 Java 17 作为编程语言，作为一种长期支持的版本，适用于高性能、高并发的分布式系统开发。Java 17 提供了更好的性能优化、内存管理以及对新的语言特性的支持。
+## 1. 编程语言与运行时
 
-### 2. **框架**
+| 技术 | 版本 | 用途 |
+|------|------|------|
+| Java | 17 (LTS) | 主要开发语言 |
+| Eclipse Temurin JRE | 17-alpine | Docker 容器运行时镜像 |
 
-* **Spring Boot 3.2.4**：用于快速构建和部署微服务应用。Spring Boot 提供了自动化配置、内嵌服务器支持等功能，帮助快速搭建开发环境并实现服务的高可用性。
-* **Spring Cloud 2023.0.1**：为分布式系统提供微服务治理能力，集成服务发现、负载均衡、熔断、配置管理等功能。它在 Spring Boot 基础上为微服务架构提供了完整的解决方案，支持服务注册与发现、API 网关等功能。
+---
 
-### 3. **数据库**
+## 2. 核心框架
 
-* **MySQL 8.0.33**：作为关系型数据库，MySQL 具备高性能、高可扩展性，广泛应用于电商系统的数据存储。它存储用户、商品、订单等关键数据。
-* **MyBatis Plus 3.5.5**：一个增强版的 MyBatis，简化了数据库操作，提供了诸如代码生成器、分页查询、乐观锁等功能，减少了大量重复代码。
+| 技术 | 版本 | 用途 |
+|------|------|------|
+| Spring Boot | 3.2.4 | 微服务基础框架，自动配置、内嵌 Tomcat |
+| Spring Web MVC | 随 Boot | REST API 层 |
+| Spring Kafka | 随 Boot | Kafka 生产者/消费者集成 |
+| MyBatis Plus | 3.5.5 | ORM 框架，简化 CRUD，支持动态 SQL |
+| dynamic-datasource-spring-boot3-starter | 4.3.1 | 多数据源路由（@DS 注解读写分离） |
+| Lombok | 1.18.x | 消除 Java 样板代码 |
 
-### 4. **中间件**
+---
 
-* **Redisson 3.27.0**：用于分布式锁和高并发场景下的缓存解决方案，特别适合秒杀系统中对库存的控制。Redisson 提供了 Redis 的高层封装，简化了分布式锁的管理以及对 Redis 数据结构的操作。
-* **Hutool 5.8.26**：一个 Java 工具包，包含了大量常用的工具类，方便开发者处理文件操作、日期时间、加解密等常见任务，提升开发效率。
+## 3. 数据库
 
-### 5. **开发工具**
+| 技术 | 版本 | 用途 |
+|------|------|------|
+| MySQL | 8.0 (bitnami) | 关系型数据库，存储用户、商品、秒杀数据 |
+| MySQL 主从复制 | bitnami 自动配置 | Master(3306) 写，Slave(3307) 读，基于 binlog |
+| ShardingSphere-JDBC | 5.4.1 | 秒杀订单分库分表（2库 × 4表 = 8张物理表） |
 
-* **Lombok 1.18.30**：用于简化 Java 代码的开发，减少冗余代码（如 getter/setter、构造函数等）。Lombok 通过注解处理器生成相应的代码，减少了样板代码的编写。
+**ShardingSphere 分片规则**：
+- 分库：`id % 2` → `flashmall_0` / `flashmall_1`
+- 分表：`id % 4` → `seckill_orders_{0..3}`
+- 驱动：`org.apache.shardingsphere.driver.ShardingSphereDriver`
 
-### 6. **构建工具**
+---
 
-* **Maven**：作为构建工具，Maven 管理项目依赖、插件、构建生命周期等，帮助开发者自动化构建和管理项目。`pom.xml` 文件中包含了各个模块的依赖关系和版本管理。
+## 4. 缓存
 
+| 技术 | 版本 | 用途 |
+|------|------|------|
+| Redis | 7-alpine | 商品缓存、秒杀库存、分布式锁、幂等标记 |
+| Redisson | 3.27.0 | Redis 高级客户端：分布式锁、RBucket、Lua 脚本执行 |
+
+**Redis 使用场景**：
+- 商品缓存（TTL 30~40min，随机抖动防雪崩）
+- 缓存穿透：null sentinel `"__NULL__"`（TTL 60s）
+- 缓存击穿：Redisson 分布式锁 + double-check
+- 秒杀库存：Lua 原子 `GET+DECR`，防超卖
+- 幂等标记：`SETNX seckill:done:{userId}:{productId}`（TTL 1h）
+
+---
+
+## 5. 消息队列
+
+| 技术 | 版本 | 用途 |
+|------|------|------|
+| Apache Kafka | 3.7 (bitnami, KRaft) | 秒杀订单削峰填谷 |
+| Spring Kafka | 随 Boot 3.2.4 | @KafkaListener 消费、KafkaTemplate 生产 |
+
+**特点**：
+- KRaft 模式（无 ZooKeeper），简化部署
+- 生产者：key=userId，保证同一用户消息有序
+- 消费者：@Transactional + DuplicateKeyException 幂等处理
+
+---
+
+## 6. 负载均衡与反向代理
+
+| 技术 | 版本 | 用途 |
+|------|------|------|
+| Nginx | latest (Docker) | 反向代理、负载均衡、静态资源服务 |
+
+**支持的负载均衡策略**（切换配置文件）：
+- `upstreams_rr.conf` — 轮询（Round Robin，默认）
+- `upstreams_least.conf` — 最少连接（Least Connections）
+- `upstreams_iphash.conf` — IP Hash（会话保持）
+
+**路由规则**：
+- `/api/seckill/` → seckill1:8085 / seckill2:8086
+- `/api/products/` → product1:8083 / product2:8084
+- `/api/` → backend1:8081 / backend2:8082
+- `/static/` → 静态文件（Cache-Control: max-age=604800）
+
+---
+
+## 7. 容器化与编排
+
+| 技术 | 版本 | 用途 |
+|------|------|------|
+| Docker | 最新版 | 容器化各微服务 |
+| Docker Compose | v2 | 多容器编排、服务依赖管理 |
+
+**服务依赖链**：
+```
+mysql-slave → mysql-master (healthy)
+product1/2 → mysql-master (healthy) + mysql-slave (healthy) + redis (started)
+seckill1/2 → mysql-master (healthy) + redis (started) + kafka (healthy)
+nginx → backend1/2 + product1/2 + seckill1/2
+```
+
+---
+
+## 8. 分布式 ID 生成
+
+| 技术 | 用途 |
+|------|------|
+| 雪花算法（自实现 SnowflakeIdGenerator） | 生成全局唯一订单 ID |
+
+**基因算法**：最低 1 位嵌入 `userId & 1`：
+```
+[41位时间戳 | 10位workerId | 11位序列号 | 1位基因]
+```
+保证 `orderId % 2 = userId % 2`，ShardingSphere 可按 id 精准路由到正确分库，无需广播查询。
+
+---
+
+## 9. 压测工具
+
+| 技术 | 版本 | 用途 |
+|------|------|------|
+| Apache JMeter | 5.5 | 接口压力测试、高并发场景模拟 |
+
+测试计划：`load/flash_mall_test.jmx`，PowerShell 启动脚本：`load/run_jmeter.ps1`
+
+---
+
+## 10. 构建工具
+
+| 技术 | 版本 | 用途 |
+|------|------|------|
+| Maven | 3.8+ | 多模块项目构建、依赖管理 |
+| maven-compiler-plugin | 3.x | 指定 Java 17 编译目标 |
+| spring-boot-maven-plugin | 随 Boot | 打包可执行 Fat JAR |
+
+---
+
+## 技术选型对比
+
+| 场景 | 选型 | 原因 |
+|------|------|------|
+| 主从复制 | bitnami/mysql | 通过环境变量自动配置主从，无需手动执行 CHANGE MASTER TO |
+| 分布式锁 | Redisson | 比 Jedis 封装更高层，内置 Lua 脚本保证原子性 |
+| 消息队列 | Kafka KRaft | 无需 ZooKeeper，简化 Docker Compose 部署 |
+| 分库分表 | ShardingSphere-JDBC | 应用层透明路由，无需修改 SQL，支持基因算法精准路由 |
+| 多数据源 | dynamic-datasource | Spring Boot 3 兼容，@DS 注解简洁，支持事务 |
