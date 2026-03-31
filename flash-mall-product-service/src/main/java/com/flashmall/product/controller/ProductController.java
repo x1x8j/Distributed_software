@@ -15,19 +15,25 @@ public class ProductController {
         this.productService = productService;
     }
 
+    /** 读：@DS("slave") 走从库 */
     @GetMapping("/{id}")
-    public ResponseEntity<Product> getProduct(@PathVariable("id") Long id) {
+    public ResponseEntity<Product> getProduct(@PathVariable Long id) {
         Product product = productService.getById(id);
-        if (product == null) {
-            return ResponseEntity.notFound().build();
-        }
-        return ResponseEntity.ok(product);
+        return product == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(product);
+    }
+
+    /**
+     * 写：@DS("master") 走主库
+     * 测试读写分离：POST /api/products   Body: {"name":"Test","price":99.9,"stock":10}
+     */
+    @PostMapping
+    public ResponseEntity<Product> createProduct(@RequestBody Product product) {
+        return ResponseEntity.ok(productService.create(product));
     }
 
     @GetMapping("/health")
     public ResponseEntity<String> health() {
         String port = System.getenv("SERVER_PORT");
-        if (port == null) port = "unknown";
-        return ResponseEntity.ok("product-service OK - port:" + port);
+        return ResponseEntity.ok("product-service OK - port:" + (port != null ? port : "unknown"));
     }
 }

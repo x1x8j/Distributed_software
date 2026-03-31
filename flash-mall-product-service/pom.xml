@@ -37,6 +37,13 @@
             <artifactId>mysql-connector-j</artifactId>
         </dependency>
 
+        <!-- 动态数据源：支持 @DS 注解路由读写分离 -->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>dynamic-datasource-spring-boot3-starter</artifactId>
+            <version>4.3.1</version>
+        </dependency>
+
         <!-- Redisson: Redis 客户端 + 分布式锁 -->
         <dependency>
             <groupId>org.redisson</groupId>

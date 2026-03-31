@@ -1,12 +1,21 @@
 spring:
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://mysql:3306/flashmall?useSSL=false&useUnicode=true&characterEncoding=utf8mb4&serverTimezone=Asia/Shanghai}
-    username: ${SPRING_DATASOURCE_USERNAME:root}
-    password: ${SPRING_DATASOURCE_PASSWORD:rootpwd}
-    driver-class-name: com.mysql.cj.jdbc.Driver
+    dynamic:
+      primary: master          # 默认主库（写操作），@DS("slave") 显式切换读操作
+      strict: false
+      datasource:
+        master:
+          url: ${MASTER_DATASOURCE_URL:jdbc:mysql://mysql-master:3306/flashmall?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai}
+          username: ${SPRING_DATASOURCE_USERNAME:root}
+          password: ${SPRING_DATASOURCE_PASSWORD:rootpwd}
+          driver-class-name: com.mysql.cj.jdbc.Driver
+        slave:
+          url: ${SLAVE_DATASOURCE_URL:jdbc:mysql://mysql-slave:3306/flashmall?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai}
+          username: ${SPRING_DATASOURCE_USERNAME:root}
+          password: ${SPRING_DATASOURCE_PASSWORD:rootpwd}
+          driver-class-name: com.mysql.cj.jdbc.Driver
   data:
     redis:
-      # Spring Boot 3.x 正确前缀，docker-compose 通过 SPRING_DATA_REDIS_HOST 覆盖
       host: ${SPRING_DATA_REDIS_HOST:redis}
       port: ${SPRING_DATA_REDIS_PORT:6379}
 

@@ -1,34 +1,66 @@
 services:
-  mysql:
-    image: mysql:8.0
-    restart: always
+  # ── MySQL 主库 ──────────────────────────────────────────────────────────────
+  mysql-master:
+    image: bitnami/mysql:8.0
     environment:
       MYSQL_ROOT_PASSWORD: rootpwd
       MYSQL_DATABASE: flashmall
+      MYSQL_REPLICATION_MODE: master
+      MYSQL_REPLICATION_USER: replicator
+      MYSQL_REPLICATION_PASSWORD: repl_pass
     volumes:
-      # 按文件名字母顺序执行，01 users 先建，02 products 后建
+      # 初始化脚本只挂主库，从库通过 binlog 自动同步
       - ./flash-mall-user-service/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/01_users.sql:ro
       - ./flash-mall-product-service/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/02_products.sql:ro
     ports:
       - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-prootpwd"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
+  # ── MySQL 从库（只读，接收主库 binlog 同步）──────────────────────────────────
+  mysql-slave:
+    image: bitnami/mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpwd
+      MYSQL_REPLICATION_MODE: slave
+      MYSQL_REPLICATION_USER: replicator
+      MYSQL_REPLICATION_PASSWORD: repl_pass
+      MYSQL_MASTER_HOST: mysql-master
+      MYSQL_MASTER_PORT_NUMBER: 3306
+      MYSQL_MASTER_ROOT_PASSWORD: rootpwd
+    depends_on:
+      mysql-master:
+        condition: service_healthy
+    ports:
+      - "3307:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-prootpwd"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ── Redis ───────────────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
 
+  # ── user-service × 2（连主库，无需读写分离演示）────────────────────────────
   backend1:
     build:
       context: .
       dockerfile: flash-mall-user-service/Dockerfile
     environment:
       - SERVER_PORT=8081
-      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/flashmall?useSSL=false&useUnicode=true&characterEncoding=utf8mb4&serverTimezone=Asia/Shanghai
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql-master:3306/flashmall?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
       - SPRING_DATASOURCE_USERNAME=root
       - SPRING_DATASOURCE_PASSWORD=rootpwd
     depends_on:
-      - mysql
-      - redis
+      mysql-master:
+        condition: service_healthy
     ports:
       - "8081:8081"
 
@@ -38,28 +70,34 @@ services:
       dockerfile: flash-mall-user-service/Dockerfile
     environment:
       - SERVER_PORT=8082
-      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/flashmall?useSSL=false&useUnicode=true&characterEncoding=utf8mb4&serverTimezone=Asia/Shanghai
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql-master:3306/flashmall?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
       - SPRING_DATASOURCE_USERNAME=root
       - SPRING_DATASOURCE_PASSWORD=rootpwd
     depends_on:
-      - mysql
-      - redis
+      mysql-master:
+        condition: service_healthy
     ports:
       - "8082:8082"
 
+  # ── product-service × 2（写主库 / 读从库）──────────────────────────────────
   product1:
     build:
       context: .
       dockerfile: flash-mall-product-service/Dockerfile
     environment:
       - SERVER_PORT=8083
-      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/flashmall?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+      - MASTER_DATASOURCE_URL=jdbc:mysql://mysql-master:3306/flashmall?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+      - SLAVE_DATASOURCE_URL=jdbc:mysql://mysql-slave:3306/flashmall?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
       - SPRING_DATASOURCE_USERNAME=root
       - SPRING_DATASOURCE_PASSWORD=rootpwd
       - SPRING_DATA_REDIS_HOST=redis
     depends_on:
-      - mysql
-      - redis
+      mysql-master:
+        condition: service_healthy
+      mysql-slave:
+        condition: service_healthy
+      redis:
+        condition: service_started
     ports:
       - "8083:8083"
 
@@ -69,16 +107,22 @@ services:
       dockerfile: flash-mall-product-service/Dockerfile
     environment:
       - SERVER_PORT=8084
-      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/flashmall?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+      - MASTER_DATASOURCE_URL=jdbc:mysql://mysql-master:3306/flashmall?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+      - SLAVE_DATASOURCE_URL=jdbc:mysql://mysql-slave:3306/flashmall?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
       - SPRING_DATASOURCE_USERNAME=root
       - SPRING_DATASOURCE_PASSWORD=rootpwd
       - SPRING_DATA_REDIS_HOST=redis
     depends_on:
-      - mysql
-      - redis
+      mysql-master:
+        condition: service_healthy
+      mysql-slave:
+        condition: service_healthy
+      redis:
+        condition: service_started
     ports:
       - "8084:8084"
 
+  # ── Nginx ───────────────────────────────────────────────────────────────────
   nginx:
     build:
       context: ./nginx
