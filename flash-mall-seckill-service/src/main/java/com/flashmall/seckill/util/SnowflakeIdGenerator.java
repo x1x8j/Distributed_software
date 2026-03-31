@@ -1,16 +1,13 @@
 package com.flashmall.seckill.util;
 
-import org.springframework.stereotype.Component;
-
 /**
- * 雪花算法 ID 生成器
+ * 雪花算法 ID 生成器（纯 POJO，由 SnowflakeConfig 作为 @Bean 注入，workerId 从配置读取）
  *
  * 结构（63 位有效位）：
  *   41 位毫秒时间戳 | 10 位机器ID | 12 位序列号
  *
  * 理论 QPS：单机 4096 * 1000 = 409.6 万/秒
  */
-@Component
 public class SnowflakeIdGenerator {
 
     private static final long EPOCH           = 1704067200000L; // 2024-01-01 00:00:00 UTC
