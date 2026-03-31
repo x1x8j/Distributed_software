@@ -12,6 +12,7 @@ services:
       # 初始化脚本只挂主库，从库通过 binlog 自动同步
       - ./flash-mall-user-service/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/01_users.sql:ro
       - ./flash-mall-product-service/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/02_products.sql:ro
+      - ./flash-mall-seckill-service/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/03_seckill.sql:ro
     ports:
       - "3306:3306"
     healthcheck:
@@ -122,6 +123,71 @@ services:
     ports:
       - "8084:8084"
 
+  # ── Kafka（KRaft 模式，无需 ZooKeeper）────────────────────────────────────
+  kafka:
+    image: bitnami/kafka:3.7
+    environment:
+      - KAFKA_CFG_NODE_ID=0
+      - KAFKA_CFG_PROCESS_ROLES=controller,broker
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
+    ports:
+      - "9092:9092"
+    healthcheck:
+      test: ["CMD", "kafka-topics.sh", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  # ── seckill-service × 2（WORKER_ID 不同，保证雪花ID不重复）──────────────
+  seckill1:
+    build:
+      context: .
+      dockerfile: flash-mall-seckill-service/Dockerfile
+    environment:
+      - SERVER_PORT=8085
+      - WORKER_ID=0
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql-master:3306/flashmall?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=rootpwd
+      - SPRING_DATA_REDIS_HOST=redis
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    depends_on:
+      mysql-master:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8085:8085"
+
+  seckill2:
+    build:
+      context: .
+      dockerfile: flash-mall-seckill-service/Dockerfile
+    environment:
+      - SERVER_PORT=8086
+      - WORKER_ID=1
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql-master:3306/flashmall?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=rootpwd
+      - SPRING_DATA_REDIS_HOST=redis
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    depends_on:
+      mysql-master:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8086:8086"
+
   # ── Nginx ───────────────────────────────────────────────────────────────────
   nginx:
     build:
@@ -135,3 +201,5 @@ services:
       - backend2
       - product1
       - product2
+      - seckill1
+      - seckill2
