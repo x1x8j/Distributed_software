@@ -4,12 +4,14 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.flashmall.seckill.config.KafkaTopicConfig;
+import com.flashmall.seckill.entity.OutboxMessage;
 import com.flashmall.seckill.entity.SeckillOrder;
 import com.flashmall.seckill.entity.SeckillStock;
+import com.flashmall.seckill.mapper.OutboxMessageMapper;
 import com.flashmall.seckill.mapper.SeckillOrderMapper;
 import com.flashmall.seckill.mapper.SeckillStockMapper;
 import com.flashmall.seckill.mq.OrderMessage;
-import com.flashmall.seckill.mq.OrderProducer;
 import com.flashmall.seckill.service.SeckillService;
 import com.flashmall.seckill.util.SnowflakeIdGenerator;
 import lombok.RequiredArgsConstructor;
@@ -19,10 +21,13 @@ import org.redisson.api.RScript;
 import org.redisson.api.RedissonClient;
 import org.redisson.client.codec.StringCodec;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * 秒杀核心服务
@@ -33,10 +38,10 @@ import java.util.List;
  * ② 原子扣库存：Lua 脚本保证 "查询+扣减" 原子性，彻底防止超卖
  *    → 返回 -1=库存未预热  0=售罄  >0=扣减前的库存（成功）
  *
- * ③ 雪花ID：生成全局唯一订单 ID，支持按 userId 分库路由（基因法扩展点）
- *
- * ④ Kafka 削峰：把订单消息异步投递给消费者，接口立即返回 202 Accepted
- *    → 消费者在 DB 层再做一次库存扣减（stock >= qty），防止 Redis 与 DB 不一致导致超卖
+ * ③ 本地消息表（Outbox Pattern）保证消息最终一致性：
+ *    - 写 seckill_orders(status=0) + 写 outbox_messages(PENDING) 在同一事务
+ *    - OutboxPoller 定时扫描 PENDING 消息，真正投递 Kafka
+ *    → 即使 Kafka 不可用，消息也不会丢失；服务重启后自动补偿投递
  */
 @Slf4j
 @Service
@@ -44,7 +49,7 @@ import java.util.List;
 public class SeckillServiceImpl implements SeckillService {
 
     // ── Redis Key 前缀 ────────────────────────────────────────────────────────
-    private static final String STOCK_KEY_PREFIX     = "seckill:stock:";
+    private static final String STOCK_KEY_PREFIX      = "seckill:stock:";
     private static final String IDEMPOTENT_KEY_PREFIX = "seckill:done:";
 
     // ── Lua 脚本：原子检查并扣减库存 ─────────────────────────────────────────
@@ -62,14 +67,15 @@ public class SeckillServiceImpl implements SeckillService {
             .registerModule(new JavaTimeModule())
             .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
-    private final SeckillOrderMapper  orderMapper;
-    private final SeckillStockMapper  stockMapper;
-    private final RedissonClient      redisson;
+    private final SeckillOrderMapper   orderMapper;
+    private final SeckillStockMapper   stockMapper;
+    private final OutboxMessageMapper  outboxMapper;
+    private final RedissonClient       redisson;
     private final SnowflakeIdGenerator snowflake;
-    private final OrderProducer        orderProducer;
 
     // ─────────────────────────────────────────────────────────────────────────
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public long doSeckill(Long userId, Long productId) {
         // ① 幂等检查：SETNX，1 小时内同用户同商品只能成功一次
         String idempotentKey = IDEMPOTENT_KEY_PREFIX + userId + ":" + productId;
@@ -89,7 +95,7 @@ public class SeckillServiceImpl implements SeckillService {
                     RScript.ReturnType.INTEGER,
                     Collections.singletonList(stockKey));
         } catch (Exception e) {
-            idempotentBucket.delete(); // 回滚幂等标记
+            idempotentBucket.delete();
             throw new SeckillException("秒杀服务异常，请稍后重试");
         }
 
@@ -105,18 +111,42 @@ public class SeckillServiceImpl implements SeckillService {
         // ③ 基因雪花 ID：低位嵌入 userId%2，保证 id%2=userId%2，ShardingSphere 按 id 精准路由
         long orderId = snowflake.nextId(userId);
 
-        // ④ 异步发 Kafka 消息（削峰填谷）
+        // ④ 【本地消息表 Outbox Pattern】
+        //    写 seckill_orders + 写 outbox_messages 在同一 @Transactional 事务内：
+        //    - 两者要么同时成功，要么同时回滚 → 彻底消除"下单成功但消息丢失"的问题
+        //    - OutboxPoller 稍后扫描 PENDING 消息发送到 Kafka（at-least-once）
+        //    - 消费端通过 consumed_messages 幂等表去重（exactly-once 语义）
+
+        // 4a. 预插订单（status=0 处理中，消费者处理完后更新）
+        SeckillOrder order = new SeckillOrder();
+        order.setId(orderId);
+        order.setUserId(userId);
+        order.setProductId(productId);
+        order.setQuantity(1);
+        order.setStatus((byte) 0);
+        order.setCreatedAt(LocalDateTime.now());
+        orderMapper.insert(order);
+
+        // 4b. 写本地消息表
         OrderMessage msg = new OrderMessage(orderId, userId, productId, 1, System.currentTimeMillis());
+        String payload;
         try {
-            orderProducer.send(msg);
+            payload = MAPPER.writeValueAsString(msg);
         } catch (Exception e) {
-            // Kafka 发送失败：回滚 Redis 库存和幂等标记
-            redisson.getAtomicLong(stockKey).incrementAndGet();
-            idempotentBucket.delete();
-            throw new SeckillException("消息队列异常，请稍后重试");
+            throw new SeckillException("消息序列化失败");
         }
 
-        log.info("[Seckill] orderId={} userId={} productId={} 消息已投递", orderId, userId, productId);
+        OutboxMessage outbox = new OutboxMessage();
+        outbox.setMessageId(UUID.randomUUID().toString());
+        outbox.setTopic(KafkaTopicConfig.SECKILL_ORDERS_TOPIC);
+        outbox.setPayload(payload);
+        outbox.setStatus(OutboxMessage.PENDING);
+        outbox.setRetryCount(0);
+        outbox.setCreatedAt(LocalDateTime.now());
+        outboxMapper.insert(outbox);
+
+        log.info("[Seckill] orderId={} userId={} productId={} 已写入本地消息表，等待投递",
+                 orderId, userId, productId);
         return orderId;
     }
 

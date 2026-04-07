@@ -18,6 +18,29 @@ CREATE TABLE IF NOT EXISTS `seckill_orders` (
   KEY `idx_user_id` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- 本地消息表（发件箱 Outbox）
+-- 与 seckill_orders 写在同一事务，保证"下单"和"发消息"原子性
+CREATE TABLE IF NOT EXISTS `outbox_messages` (
+  `id`          BIGINT       NOT NULL AUTO_INCREMENT,
+  `message_id`  VARCHAR(64)  NOT NULL                COMMENT '幂等Key，防止重复投递',
+  `topic`       VARCHAR(128) NOT NULL,
+  `payload`     TEXT         NOT NULL                COMMENT 'Kafka 消息体 JSON',
+  `status`      TINYINT      NOT NULL DEFAULT 0      COMMENT '0=PENDING 1=SENT 2=FAILED',
+  `retry_count` INT          NOT NULL DEFAULT 0,
+  `created_at`  DATETIME     DEFAULT NOW(),
+  `sent_at`     DATETIME     DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_message_id` (`message_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 消费幂等表（收件箱 Inbox）
+-- 消费者处理完一条消息后写入，防止 Kafka 重复消费导致重复扣库存
+CREATE TABLE IF NOT EXISTS `consumed_messages` (
+  `message_id`  VARCHAR(64) NOT NULL COMMENT 'Kafka 消息唯一ID',
+  `consumed_at` DATETIME    DEFAULT NOW(),
+  PRIMARY KEY (`message_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- 初始化秒杀库存（对应 products 表的前三条商品）
 INSERT INTO `seckill_stocks` (`product_id`, `stock`) VALUES
   (1, 100),

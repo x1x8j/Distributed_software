@@ -61,8 +61,13 @@ rules:
             shardingColumn: id
             shardingAlgorithmName: table-mod-4
 
-    # 非分片表（seckill_stocks 等）路由到主数据源
+    # 非分片表（seckill_stocks、outbox_messages、consumed_messages）路由到主数据源
     defaultDataSourceName: ds_main
+
+    # 显式声明非分片表，避免 ShardingSphere 对这几张表做广播或报警
+    broadcastTables:
+      - outbox_messages
+      - consumed_messages
 
     shardingAlgorithms:
       db-mod-2:
