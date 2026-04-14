@@ -30,10 +30,11 @@
             <groupId>com.mysql</groupId>
             <artifactId>mysql-connector-j</artifactId>
         </dependency>
-        <!-- ShardingSphere-JDBC 5.x：分库分表透明代理 -->
+        <!-- ShardingSphere-JDBC 5.x：分库分表透明代理
+             说明：当前镜像仓库中 shardingsphere-jdbc 聚合包不可用，改用可解析的 core 包 -->
         <dependency>
             <groupId>org.apache.shardingsphere</groupId>
-            <artifactId>shardingsphere-jdbc</artifactId>
+            <artifactId>shardingsphere-jdbc-core</artifactId>
             <version>5.4.1</version>
             <exclusions>
                 <!-- 排除 ShardingSphere 自带的旧版 Snakeyaml，使用 Spring Boot 管理的版本 -->
