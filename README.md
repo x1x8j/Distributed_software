@@ -73,7 +73,7 @@ docker-compose up -d --build
 docker-compose ps
 ```
 
-## 中期检查演示脚本（可直接复制）
+## 演示脚本
 
 ### Step 1: 健康检查
 ```bash
