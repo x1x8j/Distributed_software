@@ -5,7 +5,10 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * Kafka 消息体：由 seckill 接口生产，由 OrderConsumer 消费写库
+ * Kafka 消息体：由 seckill-service 生产，
+ * 分别投递到：
+ * 1) seckill.orders  → order-service 建单
+ * 2) seckill.deduct  → inventory-service 扣库存
  */
 @Data
 @NoArgsConstructor

@@ -1,160 +1,133 @@
 # Flash Mall - 高并发秒杀电商平台
 
-基于 Spring Boot 3 的分布式高并发秒杀系统，集成了完整的微服务架构、缓存、消息队列、分库分表等核心技术。
+基于 Spring Boot 3 的分布式秒杀系统：
+- 容器化部署（Docker Compose）
+- Nginx 负载均衡与动静分离
+- Redis 高并发缓存与预扣库存
+- Kafka 异步削峰
+- MySQL 主从读写分离
+- 分布式事务一致性（消息最终一致性）
+- 分库分表（ShardingSphere-JDBC + 基因雪花 ID）
 
-## 系统架构
+## 当前架构
 
 ```
-         ┌─────────────────────────────────────────────────┐
-         │                    Nginx (80)                    │
-         │  /api/users/ → backend_pool                      │
-         │  /api/products/ → product_pool                   │
-         │  /api/seckill/ → seckill_pool                    │
-         │  /static/ → 静态资源（7d 缓存）                    │
-         └──────┬──────────────┬───────────────┬────────────┘
-                │              │               │
-        ┌───────┴──┐   ┌───────┴──┐   ┌───────┴──┐
-        │backend1/2│   │product1/2│   │seckill1/2│
-        │8081/8082 │   │8083/8084 │   │8085/8086 │
-        └───────┬──┘   └───┬──┬───┘   └───┬──┬───┘
-                │          │  │           │  │
-         ┌──────▼──────────▼──┼───────────▼──┤
-         │    MySQL Master    │              │
-         │    :3306 (写)      │          Kafka:9092
-         └──────┬─────────────┘        (KRaft 模式)
-                │ binlog
-         ┌──────▼──────────────┐
-         │    MySQL Slave       │
-         │    :3307 (读)        │
-         └─────────────────────┘
+Nginx(80)
+  ├─ /api/users/**      -> user-service (8081/8082)
+  ├─ /api/products/**   -> product-service (8083/8084)
+  ├─ /api/seckill/**    -> seckill-service (8085/8086)
+  ├─ /api/orders/**     -> order-service (8088)
+  └─ /api/inventory/**  -> inventory-service (8087)
 
-         ┌─────────────────────────────┐
-         │     Redis :6379              │  ← 缓存 / 库存 / 幂等
-         └─────────────────────────────┘
+基础设施
+  - MySQL Master:3306 / Slave:3307
+  - Redis:6379
+  - Kafka(KRaft):9092
 ```
 
-## 微服务说明
+## 微服务职责
 
-| 服务 | 端口 | 描述 |
+| 服务 | 端口 | 职责 |
 |------|------|------|
-| user-service (backend1) | 8081 | 用户注册、登录、JWT 鉴权 |
-| user-service (backend2) | 8082 | 用户服务副本（负载均衡） |
-| product-service (product1) | 8083 | 商品 CRUD，读写分离，Redis 缓存 |
-| product-service (product2) | 8084 | 商品服务副本（负载均衡） |
-| seckill-service (seckill1) | 8085 | 秒杀核心（WORKER_ID=0） |
-| seckill-service (seckill2) | 8086 | 秒杀服务副本（WORKER_ID=1） |
-| Nginx | 80 | 反向代理 + 负载均衡 + 静态资源 |
-| MySQL Master | 3306 | 主库（写） |
-| MySQL Slave | 3307 | 从库（读） |
-| Redis | 6379 | 缓存 / 分布式锁 / 库存 |
-| Kafka | 9092 | 消息队列（KRaft 模式，无 ZooKeeper） |
+| user-service | 8081/8082 | 用户注册、登录、健康检查 |
+| product-service | 8083/8084 | 商品查询/创建、读写分离、Redis 缓存 |
+| seckill-service | 8085/8086 | 秒杀入口、Redis 预扣、Outbox 双消息投递 |
+| order-service | 8088 | 建单、订单查询、`/pay` 模拟支付 |
+| inventory-service | 8087 | 消费扣库存消息、库存查询 |
 
-## 核心特性
+## 一致性方案（本项目实现）
 
-### 秒杀防超卖链路
-1. **Redis 幂等检查**：`SETNX seckill:done:{userId}:{productId}` 防止重复下单
-2. **Lua 原子扣库存**：`GET + DECR` 原子操作，彻底防止 Redis 层超卖
-3. **Kafka 削峰**：接口立即返回 202，消费者异步落库
-4. **DB 兜底**：`UPDATE seckill_stocks SET stock=stock-1 WHERE stock>=1` 防止 Redis 与 DB 不一致导致超卖
-5. **DB 幂等兜底**：`UNIQUE KEY uk_user_product(user_id, product_id)`
+### 1) 下单 + 库存扣减一致性
+采用**消息最终一致性**：
+1. seckill-service 秒杀成功后，同事务写入 Outbox 两条消息：
+   - `seckill.orders`（给 order-service 建单）
+   - `seckill.deduct`（给 inventory-service 扣库存）
+2. OutboxPoller 定时扫描 PENDING 消息并投递 Kafka
+3. inventory-service 扣减库存后发送 `inventory.result`
+4. order-service 消费结果更新订单状态：
+   - 成功 -> `status=1`（待支付）
+   - 失败 -> `status=3`（库存不足取消）
 
-### 分库分表（ShardingSphere-JDBC 5.4.1）
-- 分库规则：`id % 2` → `flashmall_0`（偶数）/ `flashmall_1`（奇数）
-- 分表规则：`id % 4` → `seckill_orders_0` ~ `seckill_orders_3`
-- **基因算法**：雪花 ID 最低位嵌入 `userId % 2`，保证 `id % 2 = userId % 2`，精准路由无广播
+### 2) 订单支付 + 订单状态更新一致性
+1. 调用 `POST /api/orders/{orderId}/pay`
+2. order-service 发送 `order.payment` 消息
+3. PaymentConsumer 幂等消费后更新订单状态为 `status=2`（已支付）
 
-### Redis 缓存防护
-- **缓存穿透**：null sentinel `"__NULL__"` TTL 60s
-- **缓存击穿**：Redisson 分布式锁 + double-check
-- **缓存雪崩**：基础 TTL 30min + 随机抖动 0~10min
+## 秒杀防超卖与限购
 
-### MySQL 读写分离
-- 写操作：`@DS("master")` → mysql-master:3306
-- 读操作：`@DS("slave")` → mysql-slave:3306
-- 实现框架：dynamic-datasource-spring-boot3-starter 4.3.1
+- **限购/幂等**：`SETNX seckill:done:{userId}:{productId}`（TTL 1h）
+- **防超卖（Redis 层）**：Lua 原子 `GET + DECR`
+- **防超卖（DB 层）**：`UPDATE ... WHERE stock >= qty`
+- **消费幂等**：`consumed_messages` 表
 
 ## 快速启动
 
-### 前置要求
-- Docker Desktop
-- Java 17 + Maven 3.8+
-
-### 构建并启动
 ```bash
-# 构建所有服务
+# 1) 构建
 mvn clean package -DskipTests
 
-# 启动所有容器
+# 2) 启动
 docker-compose up -d --build
 
-# 查看服务状态
+# 3) 查看状态
 docker-compose ps
 ```
 
-### 库存预热（秒杀前必须执行）
+## 中期检查演示脚本（可直接复制）
+
+### Step 1: 健康检查
+```bash
+curl http://localhost/api/seckill/health
+curl http://localhost/api/orders/health
+curl http://localhost/api/inventory/health
+```
+预期：均返回 OK 文本。
+
+### Step 2: 预热秒杀库存
 ```bash
 curl -X POST http://localhost/api/seckill/admin/stock/warm/all
 ```
+预期：返回“所有商品库存预热完成”。
 
-## Nginx 负载均衡策略
-
-在 `docker-compose.yml` 中修改 nginx volumes 挂载的配置文件：
-
-| 文件 | 策略 |
-|------|------|
-| `nginx/upstreams_rr.conf` | 轮询（默认） |
-| `nginx/upstreams_least.conf` | 最少连接 |
-| `nginx/upstreams_iphash.conf` | IP Hash（会话保持） |
-
-## JMeter 压测
-
-```powershell
-# Windows PowerShell
-.\load\run_jmeter.ps1
+### Step 3: 发起秒杀
+```bash
+curl -X POST http://localhost/api/seckill/1 -H "X-User-Id: 42"
 ```
+预期：HTTP 202，返回 `orderId` 和 `queryUrl`。
 
-测试计划位置：`load/flash_mall_test.jmx`
+### Step 4: 查询订单状态（异步）
+```bash
+curl http://localhost/api/orders/{orderId}
+```
+预期状态：
+- 初始 `0`（待确认库存）
+- 随后 `1`（待支付）或 `3`（库存不足取消）
 
-## 目录结构
+### Step 5: 查询库存
+```bash
+curl http://localhost/api/inventory/1
+```
+预期：库存已减少。
+
+### Step 6: 模拟支付
+```bash
+curl -X POST http://localhost/api/orders/{orderId}/pay -H "X-User-Id: 42"
+curl http://localhost/api/orders/{orderId}
+```
+预期：最终 `status=2`（已支付）。
+
+## 目录结构（核心）
 
 ```
 flash-mall/
-├── flash-mall-user-service/     # 用户服务
-├── flash-mall-product-service/  # 商品服务（读写分离 + Redis 缓存）
-├── flash-mall-seckill-service/  # 秒杀服务（Kafka + ShardingSphere）
-│   └── src/main/resources/
-│       ├── application.yml
-│       ├── shardingsphere.yaml  # 分库分表配置
-│       ├── schema.sql           # flashmall 库表结构
-│       └── schema_shard.sql     # flashmall_0/1 分片表结构
-├── nginx/                       # Nginx 配置 + 负载均衡策略
-│   ├── nginx.conf
-│   ├── upstreams_rr.conf
-│   ├── upstreams_least.conf
-│   └── upstreams_iphash.conf
-├── load/                        # JMeter 压测脚本
-│   ├── flash_mall_test.jmx
-│   └── run_jmeter.ps1
-├── docs/                        # 文档
-│   ├── API.md
-│   ├── database.md
-│   └── technology_stack.md
+├── flash-mall-user-service/
+├── flash-mall-product-service/
+├── flash-mall-seckill-service/
+├── flash-mall-order-service/
+├── flash-mall-inventory-service/
+├── nginx/
+├── docs/
 └── docker-compose.yml
 ```
 
-## API 快速参考
-
-| 功能 | 方法 | 路径 |
-|------|------|------|
-| 用户注册 | POST | `/api/users/register` |
-| 用户登录 | POST | `/api/users/login` |
-| 商品列表 | GET | `/api/products` |
-| 商品详情 | GET | `/api/products/{id}` |
-| 创建商品 | POST | `/api/products` |
-| 秒杀下单 | POST | `/api/seckill/{productId}` |
-| 查询订单 | GET | `/api/seckill/orders/{orderId}` |
-| 用户订单列表 | GET | `/api/seckill/orders/user/{userId}` |
-| 库存预热（单个） | POST | `/api/seckill/admin/stock/warm/{productId}` |
-| 库存预热（全部） | POST | `/api/seckill/admin/stock/warm/all` |
-
-详细 API 文档见 [docs/API.md](docs/API.md)
+详细接口见 [docs/API.md](docs/API.md)；数据库见 [docs/database.md](docs/database.md)。
