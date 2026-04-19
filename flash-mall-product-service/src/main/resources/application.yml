@@ -1,7 +1,14 @@
+server:
+  port: ${SERVER_PORT:8083}
+
 spring:
+  application:
+    name: flash-mall-product-service
+  config:
+    import: optional:nacos:${spring.application.name}.yaml
   datasource:
     dynamic:
-      primary: master          # 默认主库（写操作），@DS("slave") 显式切换读操作
+      primary: master
       strict: false
       datasource:
         master:
@@ -18,10 +25,26 @@ spring:
     redis:
       host: ${SPRING_DATA_REDIS_HOST:redis}
       port: ${SPRING_DATA_REDIS_PORT:6379}
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_ADDR:nacos:8848}
+      config:
+        server-addr: ${NACOS_ADDR:nacos:8848}
+        file-extension: yaml
+        refresh-enabled: true
+    sentinel:
+      transport:
+        dashboard: ${SENTINEL_DASHBOARD:sentinel-dashboard:8858}
+        port: 8719
+      eager: true
 
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
 
-server:
-  port: ${SERVER_PORT:8083}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

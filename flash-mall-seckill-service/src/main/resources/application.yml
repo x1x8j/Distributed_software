@@ -1,11 +1,15 @@
+server:
+  port: ${SERVER_PORT:8085}
+
 spring:
+  application:
+    name: flash-mall-seckill-service
+  config:
+    import: optional:nacos:${spring.application.name}.yaml
   datasource:
-    # ShardingSphere-JDBC 驱动，读取 classpath:shardingsphere.yaml 做分库分表路由
     driver-class-name: org.apache.shardingsphere.driver.ShardingSphereDriver
     url: jdbc:shardingsphere:classpath:shardingsphere.yaml
-    # username/password 由 shardingsphere.yaml 内每个数据源单独配置，此处不填
   autoconfigure:
-    # 排除 Spring Boot 默认 DataSource 自动配置，避免与 ShardingSphere 冲突
     exclude: org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
   data:
     redis:
@@ -24,13 +28,30 @@ spring:
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       enable-auto-commit: true
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_ADDR:nacos:8848}
+      config:
+        server-addr: ${NACOS_ADDR:nacos:8848}
+        file-extension: yaml
+        refresh-enabled: true
+    sentinel:
+      transport:
+        dashboard: ${SENTINEL_DASHBOARD:sentinel-dashboard:8858}
+        port: 8719
+      eager: true
 
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
 
-server:
-  port: ${SERVER_PORT:8085}
-
 seckill:
   worker-id: ${WORKER_ID:0}
+  dynamic-message: ${seckill.dynamic-message:seckill-service-default}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

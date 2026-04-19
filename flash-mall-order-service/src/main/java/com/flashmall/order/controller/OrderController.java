@@ -6,6 +6,7 @@ import com.flashmall.order.service.impl.OrderServiceImpl;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import com.alibaba.csp.sentinel.annotation.SentinelResource;
 
 import java.util.List;
 import java.util.Map;
@@ -44,6 +45,7 @@ public class OrderController {
      * Header: X-User-Id: {userId}
      */
     @PostMapping("/{orderId}/pay")
+    @SentinelResource(value = "orderPayResource", blockHandler = "payBlocked")
     public ResponseEntity<?> pay(@PathVariable Long orderId,
                                  @RequestHeader("X-User-Id") Long userId) {
         try {
@@ -53,6 +55,10 @@ public class OrderController {
         } catch (OrderServiceImpl.OrderException e) {
             return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
         }
+    }
+
+    public ResponseEntity<?> payBlocked(Long orderId, Long userId, com.alibaba.csp.sentinel.slots.block.BlockException ex) {
+        return ResponseEntity.status(429).body(Map.of("message", "支付请求过于频繁，请稍后重试", "orderId", orderId));
     }
 
     /** 健康检查 */

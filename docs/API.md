@@ -102,6 +102,14 @@ curl -X POST http://localhost/api/seckill/1 -H "X-User-Id: 42"
 ### 预热全部库存
 - `POST /api/seckill/admin/stock/warm/all`
 
+### 动态配置验证
+- `GET /api/seckill/config/message`
+- 说明：`seckill.dynamic-message` 可在 Nacos 配置中心动态修改并实时生效（`@RefreshScope`）。
+
+### 熔断与限流说明
+- 网关对 `/api/seckill/**` 启用 IP 限流（Redis Token Bucket）
+- 网关对秒杀路由启用熔断器，触发后降级到 `/gateway/fallback/seckill`（`503`）
+
 ### 健康检查
 - `GET /api/seckill/health`
 
@@ -138,10 +146,18 @@ Base URL: `/api/orders`
 }
 ```
 
-失败：`400`
+业务失败：`400`
 ```json
 {
   "message": "订单当前状态不允许支付，status=3"
+}
+```
+
+限流/熔断：`429`
+```json
+{
+  "message": "支付请求过于频繁，请稍后重试",
+  "orderId": 123456789012345678
 }
 ```
 

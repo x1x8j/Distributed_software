@@ -1,4 +1,11 @@
+server:
+  port: ${SERVER_PORT:8087}
+
 spring:
+  application:
+    name: flash-mall-inventory-service
+  config:
+    import: optional:nacos:${spring.application.name}.yaml
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: ${SPRING_DATASOURCE_URL:jdbc:mysql://mysql-master:3306/flashmall_inventory?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai}
@@ -19,10 +26,26 @@ spring:
       enable-auto-commit: false
     listener:
       ack-mode: MANUAL_IMMEDIATE
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_ADDR:nacos:8848}
+      config:
+        server-addr: ${NACOS_ADDR:nacos:8848}
+        file-extension: yaml
+        refresh-enabled: true
+    sentinel:
+      transport:
+        dashboard: ${SENTINEL_DASHBOARD:sentinel-dashboard:8858}
+        port: 8719
+      eager: true
 
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
 
-server:
-  port: ${SERVER_PORT:8087}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

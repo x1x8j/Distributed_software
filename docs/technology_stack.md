@@ -14,11 +14,9 @@
 | 技术 | 版本 | 说明 |
 |------|------|------|
 | Spring Boot | 3.2.4 | 微服务基础框架 |
-| Spring Web MVC | Boot 内置 | REST API |
-| Spring Kafka | Boot 内置 | Kafka 生产消费 |
-| MyBatis Plus | 3.5.5 | ORM 与简化 CRUD |
-| dynamic-datasource-spring-boot3-starter | 4.3.1 | product-service 读写分离（@DS） |
-| Lombok | 1.18.x | 减少样板代码 |
+| Spring Cloud Gateway | 4.1.x | 统一网关路由、过滤、流量治理入口 |
+| Spring Cloud Alibaba Nacos | 2023.0.1.0 | 服务注册发现、配置中心、动态刷新 |
+| Sentinel | 1.8.6（Dashboard） | 限流、熔断、降级治理 |
 
 ---
 
@@ -76,7 +74,8 @@
 
 | 技术 | 说明 |
 |------|------|
-| Nginx | 统一入口、反向代理、负载均衡、静态资源服务 |
+| Nginx | 外层入口、静态资源与反向代理（转发到 Gateway） |
+| Spring Cloud Gateway | 内层网关，基于服务发现路由到各微服务 |
 
 ### 负载策略文件
 - `nginx/upstreams_rr.conf`：轮询
@@ -84,11 +83,13 @@
 - `nginx/upstreams_iphash.conf`：IP Hash
 
 ### 路由规则（当前）
-- `/api/users/**` -> backend_pool
-- `/api/products/**` -> product_pool
-- `/api/seckill/**` -> seckill_pool
-- `/api/orders/**` -> order_pool
-- `/api/inventory/**` -> inventory_pool
+- `/api/**` -> `gateway_pool`（Nginx）
+- Gateway 再按服务路由：
+  - `/api/users/**` -> `flash-mall-user-service`
+  - `/api/products/**` -> `flash-mall-product-service`
+  - `/api/seckill/**` -> `flash-mall-seckill-service`
+  - `/api/orders/**` -> `flash-mall-order-service`
+  - `/api/inventory/**` -> `flash-mall-inventory-service`
 
 ---
 
@@ -103,11 +104,14 @@
 - mysql-master / mysql-slave
 - redis
 - kafka
+- nacos
+- sentinel-dashboard
 - user-service x2
 - product-service x2
 - seckill-service x2
 - order-service x1
 - inventory-service x1
+- gateway
 - nginx
 
 ---

@@ -13,6 +13,9 @@
 
 ```
 Nginx(80)
+  └─ /api/** -> gateway (8080)
+
+Gateway(8080, Nacos Discovery)
   ├─ /api/users/**      -> user-service (8081/8082)
   ├─ /api/products/**   -> product-service (8083/8084)
   ├─ /api/seckill/**    -> seckill-service (8085/8086)
@@ -23,6 +26,8 @@ Nginx(80)
   - MySQL Master:3306 / Slave:3307
   - Redis:6379
   - Kafka(KRaft):9092
+  - Nacos:8848
+  - Sentinel Dashboard:8858
 ```
 
 ## 微服务职责
@@ -66,7 +71,7 @@ Nginx(80)
 # 1) 构建
 mvn clean package -DskipTests
 
-# 2) 启动
+# 2) 启动（含 Nacos/Gateway/Sentinel）
 docker-compose up -d --build
 
 # 3) 查看状态
@@ -75,13 +80,21 @@ docker-compose ps
 
 ## 演示脚本
 
-### Step 1: 健康检查
+### Step 1: 健康检查（走网关）
 ```bash
 curl http://localhost/api/seckill/health
 curl http://localhost/api/orders/health
 curl http://localhost/api/inventory/health
 ```
 预期：均返回 OK 文本。
+
+### Step 1.5: Nacos/Gateway/Sentinel 检查
+```bash
+curl http://localhost:8848/nacos
+curl http://localhost:8080/actuator/health
+curl http://localhost:8858
+```
+预期：Nacos 控制台、Gateway 健康检查、Sentinel Dashboard 可访问。
 
 ### Step 2: 预热秒杀库存
 ```bash
@@ -109,12 +122,30 @@ curl http://localhost/api/inventory/1
 ```
 预期：库存已减少。
 
-### Step 6: 模拟支付
-```bash
-curl -X POST http://localhost/api/orders/{orderId}/pay -H "X-User-Id: 42"
-curl http://localhost/api/orders/{orderId}
+### Step 7: 动态配置刷新验证
+在 Nacos 中修改 `flash-mall-seckill-service.yaml`：
+```yaml
+seckill:
+  dynamic-message: "hello-from-nacos"
 ```
-预期：最终 `status=2`（已支付）。
+随后访问：
+```bash
+curl http://localhost/api/seckill/config/message
+```
+预期：返回最新 `message`，无需重启服务。
+
+### Step 8: 限流与熔断验证
+```bash
+# 限流压测（示例）
+./load/run_jmeter.ps1 -Target http://host.docker.internal -TargetPort 80 -Threads 100 -Ramp 10 -Loops 200
+
+# 熔断降级验证
+docker-compose stop seckill1 seckill2
+curl -i http://localhost/api/seckill/health
+```
+预期：
+- 高并发时秒杀接口部分返回 429（限流生效）
+- 秒杀服务不可用时返回 503 且提示“秒杀服务繁忙，请稍后重试”
 
 ## 目录结构（核心）
 

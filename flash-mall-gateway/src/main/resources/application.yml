@@ -1,0 +1,86 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  application:
+    name: flash-mall-gateway
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_ADDR:nacos:8848}
+      config:
+        server-addr: ${NACOS_ADDR:nacos:8848}
+        file-extension: yaml
+        refresh-enabled: true
+    sentinel:
+      transport:
+        dashboard: ${SENTINEL_DASHBOARD:sentinel-dashboard:8858}
+        port: 8719
+      eager: true
+    gateway:
+      discovery:
+        locator:
+          enabled: true
+          lower-case-service-id: true
+      routes:
+        - id: user-service
+          uri: lb://flash-mall-user-service
+          predicates:
+            - Path=/api/users/**
+          filters:
+            - StripPrefix=0
+        - id: product-service
+          uri: lb://flash-mall-product-service
+          predicates:
+            - Path=/api/products/**
+          filters:
+            - StripPrefix=0
+        - id: seckill-service
+          uri: lb://flash-mall-seckill-service
+          predicates:
+            - Path=/api/seckill/**
+          filters:
+            - StripPrefix=0
+            - name: CircuitBreaker
+              args:
+                name: seckillCircuit
+                fallbackUri: forward:/gateway/fallback/seckill
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 30
+                redis-rate-limiter.burstCapacity: 60
+                key-resolver: "#{@ipKeyResolver}"
+        - id: order-service
+          uri: lb://flash-mall-order-service
+          predicates:
+            - Path=/api/orders/**
+          filters:
+            - StripPrefix=0
+        - id: inventory-service
+          uri: lb://flash-mall-inventory-service
+          predicates:
+            - Path=/api/inventory/**
+          filters:
+            - StripPrefix=0
+
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:redis}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,gateway
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      seckillCircuit:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 20
+        minimum-number-of-calls: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 5
